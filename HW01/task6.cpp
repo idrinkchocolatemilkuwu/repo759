@@ -12,6 +12,5 @@ int main(int argc, char** argv)
 	for (int i = N; i > -1; i--) {
 		cout << i << " ";
 	}
-	cout << "\n";
   return 0;
 }
