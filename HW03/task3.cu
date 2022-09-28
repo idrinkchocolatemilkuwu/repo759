@@ -23,6 +23,13 @@ int main(int argc, char* argv[]){
 		b[i] = dist_b(generator);
 	}
 
+	//reference:olcf.ornl.gov/wp-content/uploads/2019/06/06_Managed_Memory.pdf
+	//explicit prefetching
+	int device;
+	cudaGetDevice(&device);
+	cudaMemPrefetchAsync(a, sizeof(float) * n, device);
+	cudaMemPrefetchAsync(b, sizeof(float) * n, device);
+
 	//set up cuda events to time
 	cudaEvent_t start;
 	cudaEvent_t stop;
