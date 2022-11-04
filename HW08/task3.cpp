@@ -24,6 +24,7 @@ int main(int argc, char** argv){
 	
 	//call msort and time it
 	omp_set_num_threads(t);
+	omp_set_nested(1);
 	double startT = omp_get_wtime();
 	msort(arr, n, ts);
 	double timeElapsed = (omp_get_wtime() - startT) * 1000;
