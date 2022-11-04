@@ -1,11 +1,13 @@
 #include "msort.h"
 #include <algorithm>
+#include <iostream>
 
 //reference: stackoverflow.com/questions/13811114/parallel-merge-sort-in-openmp
 //reference: geeksforgeeks.org/insertion-sort/
 //reference: stackoverflow.com/questions/12030683/implementing-merge-sort-in-c
 
 //serial sort algorithm
+/*
 void insertionSort(int *arr, const std::size_t n)
 {
 	int key, j;
@@ -19,7 +21,18 @@ void insertionSort(int *arr, const std::size_t n)
 		}
 		arr[j + 1] = key;
 	}
+	//printf("performing insertion sort");
 
+}*/
+
+void insertionSort(int* arr, const std::size_t n)
+{
+	//reference: geeksforgeeks.org/insertion-sort-using-c-stl/
+	for (auto ptr = arr; ptr != arr + n; ptr++){
+		auto const insertion_point = std::upper_bound(arr, ptr, *ptr);
+		std::rotate(insertion_point, ptr, ptr + 1);
+	}
+	return;
 }
 
 //openmp parallel sort
