@@ -1,5 +1,8 @@
-#include "read_image.h"
-#include "write_image.h"
+#include <stdint.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 int main(){
     
@@ -7,8 +10,9 @@ int main(){
     const char* input_image_path = "/data/data_ustv/home/ylee739/histopathpreprocessing/dataset/20069_38_2048_1462.jpg";
     //read image
     //int image_width, image_height;
-    int* image, image_width, image_height;
-    read_image(input_image_path, image, &image_width, &image_height);
+    uint8_t* image;
+    int image_width, image_height, bpp;
+    image = stbi_load(input_image_path, &image_width, &image_height, &bpp, 3);
 
     //check if the loaded image width and height are correct
     //correct image width: 2048
@@ -18,5 +22,5 @@ int main(){
 
     //save the loaded image
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
-    write_image(output_image_path, image_width, image_height, image);
+    stbi_write_jpg(output_image_path, image_width, image_height, 3, image, 100);
 }
