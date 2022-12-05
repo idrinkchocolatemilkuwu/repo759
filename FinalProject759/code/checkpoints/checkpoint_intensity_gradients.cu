@@ -221,8 +221,17 @@ int main(){
     cudaMallocManaged((void**)&convolved_image, image_width * image_height * sizeof(uint8_t));
     convolve(grayscale_image, convolved_image, image_width, image_height, gaussian_filter, gaussian_filter_size);
 
+    //compute the intensity gradient
+    uint8_t* gradient_x; uint8_t* gradient_y; 
+    cudaMallocManaged((void**)&gradient_x, image_width * image_height * sizeof(uint8_t));
+    cudaMallocManaged((void**)&gradient_y, image_width * image_height * sizeof(uint8_t));
+    float* image_gradient; float* image_gradient_dir;
+    cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(float));
+    cudaMallocManaged((void**)&image_gradient_dir, image_width * image_height * sizeof(float));
+    intensity_gradient(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+
     //save the loaded image
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
-    stbi_write_jpg(output_image_path, image_width, image_height, 1, convolved_image, 100);
+    stbi_write_jpg(output_image_path, image_width, image_height, 1, image_gradient, 100);
     //stbi_write_jpg(output_image_path, image_width, image_height, 3, image, 100);
 }
