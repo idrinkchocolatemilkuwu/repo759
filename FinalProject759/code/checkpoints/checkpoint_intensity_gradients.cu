@@ -134,7 +134,7 @@ __host__ void convolve(uint8_t* img, uint8_t* img_output, int img_width, int img
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-__host__ void compute_magnitude_and_angle(float* g_x, float* g_y, float* g_abs, float* g_theta, int width, int height)
+__host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, float* g_abs, float* g_theta, int width, int height)
 {
     //input 1D arrays of the gradient "g_x" and "g_y"
     //compute the magnitude of the gradient = square root(g_x^2 + g_y^2)
@@ -155,11 +155,11 @@ __host__ void compute_magnitude_and_angle(float* g_x, float* g_y, float* g_abs, 
 
         //combining the above,
         //theta should map to (((theta + 180 + 22.5) / 45) * 45) % 180 
-        g_theta[i] = (std::floor((atan2f(g_y[i], g_x[i]) + 9 * M_PI / 8 ) / (M_PI / 4)) * (M_PI / 4)) % M_PI;
+        g_theta[i] = fmod(std::floor((atan2f(g_y[i], g_x[i]) + 9 * M_PI / 8 ) / (M_PI / 4)) * (M_PI / 4), M_PI);
     }
 }
 
-__host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, float* g_x, float* g_y, float* gradient, float* gradient_dir)
+__host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, float* gradient, float* gradient_dir)
 {
     //input 1D array of image "img"
     //compute the intensity gradient of the image using the Sobel operator
