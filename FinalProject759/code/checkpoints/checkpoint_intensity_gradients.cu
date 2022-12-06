@@ -182,6 +182,26 @@ __host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, ui
     compute_magnitude_and_angle(g_x, g_y, gradient, gradient_dir, img_width, img_height);
 } 
 
+__global__ void intensity_gradient_kernel(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, float* gradient, float* gradient_dir)
+{
+    //try kernel from reference and see if the output is the same
+    int x, y;
+    x = blockDim.x * blockIdx.x + threadIdx.x;
+    y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (y >= img_height || x >= img_width){
+        return;
+    }
+
+    g_x[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] - img[(y - 1) * img_width + (x + 1)]
+                           + 2 * img[y * img_width + (x - 1)] - 2 * img[y * img_width + (x + 1)]
+                           + img[(y + 1) * img_width + (x - 1)] - img[(y + 1) * img_width + (x + 1)];
+    g_y[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] + 2 * img[(y - 1) * img_width + x] + img[(y - 1) * img_width +(x + 1)] 
+                           - img[(y + 1) * img_width + (x - 1)] - 2 * img[(y + 1) * img_width + x] - img[(y + 1) * img_width +(x + 1)];
+    
+    gradient[y * img_width + x] = sqrtf(g_x[y * img_width + x] * g_x[y * img_width + x] + g_y[y * img_width + x] * g_y[y * img_width + x]);
+
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -229,6 +249,7 @@ int main(){
     cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(float));
     cudaMallocManaged((void**)&image_gradient_dir, image_width * image_height * sizeof(float));
     intensity_gradient(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+    //intensity_gradient_kernel<<<dim3(1024,1024), dim3(5,5)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
 
     //save the loaded image
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
