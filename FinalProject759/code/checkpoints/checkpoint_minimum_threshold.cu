@@ -184,15 +184,87 @@ __host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, ui
     compute_magnitude_and_angle(g_x, g_y, gradient, gradient_dir, img_width, img_height);
 } 
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+__global__ void intensity_gradient_kernel(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, float* gradient, float* gradient_dir)
+{
+    //try kernel from reference and see if the output is the same
+    int x, y;
+    x = blockDim.x * blockIdx.x + threadIdx.x;
+    y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (y >= img_height || x >= img_width){
+        return;
+    }
+
+    g_x[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] - img[(y - 1) * img_width + (x + 1)]
+                           + 2 * img[y * img_width + (x - 1)] - 2 * img[y * img_width + (x + 1)]
+                           + img[(y + 1) * img_width + (x - 1)] - img[(y + 1) * img_width + (x + 1)];
+    g_y[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] + 2 * img[(y - 1) * img_width + x] + img[(y - 1) * img_width +(x + 1)] 
+                           - img[(y + 1) * img_width + (x - 1)] - 2 * img[(y + 1) * img_width + x] - img[(y + 1) * img_width +(x + 1)];
+    
+    gradient[y * img_width + x] = sqrtf(g_x[y * img_width + x] * g_x[y * img_width + x] + g_y[y * img_width + x] * g_y[y * img_width + x]);
+
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-__host__ void apply_lower_bound_to_gradient(float* gradient, float* gradient_dir)
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+__global__ void apply_lower_bound_to_gradient(float* gradient, float* gradient_dir, float* updated_gradient, int img_width, int img_height)
 {
     //perform the "edge thinning" technique
     //input the gradient "gradient" and gradient direction "gradient_dir"
-    //
+    //store the updated gradient at "updated gradient"
+
+    int x, y;
+    x = blockDim.x * blockIdx.x + threadIdx.x;
+    y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (y >= img_height || x >= img_width){
+        return;
+    }
+
+    //for each pixel check the gradient direction and the neighboring gradient magnitude values
+    float neighbor_gradient_1, neighbor_gradient_2;
+    if (gradient_dir[y * img_width + x] == 0){
+        //the edge is in north-south direction
+        //the pixel will be considered to be on edge
+        //if its gradient magnitude is greater than 
+        //the neighboring gradient magnitudes in the east-west direction
+        neighbor_gradient_1 = gradient[y * img_width + x + 1];
+        neighbor_gradient_2 = gradient[y * img_width + x - 1];
+    }
+    if (gradient_dir[y * img_width + x] == 90){
+        //the edge is in east-west direction
+        //the pixel will be considered to be on edge
+        //if its gradient magnitude is greater than 
+        //the neighboring gradient magnitudes in the north-south direction
+        neighbor_gradient_1 = gradient[(y + 1) * img_width + x];
+        neighbor_gradient_2 = gradient[(y - 1) * img_width + x];
+    }
+    if (gradient_dir[y * img_width + x] == 135){
+        //the edge is in northeast-southwest direction
+        //the pixel will be considered to be on edge
+        //if its gradient magnitude is greater than 
+        //the neighboring gradient magnitudes in the northwest-southeast direction
+        neighbor_gradient_1 = gradient[(y + 1) * img_width + (x - 1)];
+        neighbor_gradient_2 = gradient[(y - 1) * img_width + (x + 1)];
+    }
+    if (gradient_dir[y * img_width + x] == 45){
+        //the edge is in northwest-southeast direction
+        //the pixel will be considered to be on edge
+        //if its gradient magnitude is greater than 
+        //the neighboring gradient magnitudes in the northeast-southwest direction
+        neighbor_gradient_1 = gradient[(y + 1) * img_width + (x + 1)];
+        neighbor_gradient_2 = gradient[(y - 1) * img_width + (x - 1)];
+    }
+
+    //compare the gradient with the neighboring gradients
+    if (gradient[y * img_width + x] < neighbor_gradient_1 || gradient[y * img_width + x] < neighbor_gradient_2){
+        updated_gradient[y * img_width + x] = 0;
+    }
+    else{
+        updated_gradient[y * img_width + x] = gradient[y * img_width + x];
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -234,8 +306,23 @@ int main(){
     cudaMallocManaged((void**)&convolved_image, image_width * image_height * sizeof(uint8_t));
     convolve(grayscale_image, convolved_image, image_width, image_height, gaussian_filter, gaussian_filter_size);
 
+    //compute the intensity gradient
+    uint8_t* gradient_x; uint8_t* gradient_y; 
+    cudaMallocManaged((void**)&gradient_x, image_width * image_height * sizeof(uint8_t));
+    cudaMallocManaged((void**)&gradient_y, image_width * image_height * sizeof(uint8_t));
+    float* image_gradient; float* image_gradient_dir;
+    cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(float));
+    cudaMallocManaged((void**)&image_gradient_dir, image_width * image_height * sizeof(float));
+    intensity_gradient(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+    //intensity_gradient_kernel<<<dim3(1024,1024), dim3(5,5)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+
+    //perform edge thinning
+    float* gradient_after_edge_thinning;
+    cudaMallocManaged((void**)&gradient_after_edge_thinning, image_width * image_height * sizeof(float));
+    apply_lower_bound_to_gradient<<<dim3(1024,1024), dim3(2,2)>>>(image_gradient, image_gradient_dir, gradient_after_edge_thinning, image_width, image_height);
+
     //save the loaded image
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
-    stbi_write_jpg(output_image_path, image_width, image_height, 1, convolved_image, 100);
+    stbi_write_jpg(output_image_path, image_width, image_height, 1, gradient_after_edge_thinning, 100);
     //stbi_write_jpg(output_image_path, image_width, image_height, 3, image, 100);
 }
