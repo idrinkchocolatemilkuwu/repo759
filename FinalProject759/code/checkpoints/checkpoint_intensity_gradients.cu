@@ -134,7 +134,7 @@ __host__ void convolve(uint8_t* img, uint8_t* img_output, int img_width, int img
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-__host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, float* g_abs, float* g_theta, int width, int height)
+__host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, uint8_t* g_abs, float* g_theta, int width, int height)
 {
     //input 1D arrays of the gradient "g_x" and "g_y"
     //compute the magnitude of the gradient = square root(g_x^2 + g_y^2)
@@ -144,7 +144,7 @@ __host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, float* g_a
 
     #pragma omp parallel for
     for (int i = 0; i < width * height; i++){
-        g_abs[i] = sqrtf(g_x[i] * g_x[i] + g_y[i] * g_y[i]);
+        g_abs[i] = sqrt(g_x[i] * g_x[i] + g_y[i] * g_y[i]);
         //note atan2 maps -180 to 180.
         //we can use (theta + 180) % 180 to have theta range from 0 to 180
 
@@ -159,7 +159,7 @@ __host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, float* g_a
     }
 }
 
-__host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, float* gradient, float* gradient_dir)
+__host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, uint8_t* gradient, float* gradient_dir)
 {
     //input 1D array of image "img"
     //compute the intensity gradient of the image using the Sobel operator
@@ -180,9 +180,26 @@ __host__ void intensity_gradient(uint8_t* img, int img_width, int img_height, ui
     convolve(img, g_x, img_width, img_height, filter_x, 3);
     convolve(img, g_y, img_width, img_height, filter_y, 3);
     compute_magnitude_and_angle(g_x, g_y, gradient, gradient_dir, img_width, img_height);
-} 
+}
 
-__global__ void intensity_gradient_kernel(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, float* gradient, float* gradient_dir)
+__host__ void intensity_gradient_wo_bc(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, uint8_t* gradient, float* gradient_dir)
+{
+    //try explicit
+    #pragma omp parallel for 
+    for (int y = 1; y < img_height - 1; y++){
+        for (int x = 1; x < img_width - 1; x++){
+            g_x[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] - img[(y - 1) * img_width + (x + 1)]
+                                   + 2 * img[y * img_width + (x - 1)] - 2 * img[y * img_width + (x + 1)]
+                                   + img[(y + 1) * img_width + (x - 1)] - img[(y + 1) * img_width + (x + 1)];
+            g_y[y * img_width + x] = img[(y - 1) * img_width + (x - 1)] + 2 * img[(y - 1) * img_width + x] + img[(y - 1) * img_width +(x + 1)] 
+                                   - img[(y + 1) * img_width + (x - 1)] - 2 * img[(y + 1) * img_width + x] - img[(y + 1) * img_width +(x + 1)];
+
+            gradient[y * img_width + x] = sqrt(g_x[y * img_width + x] * g_x[y * img_width + x] + g_y[y * img_width + x] * g_y[y * img_width + x]);
+        }
+    }
+}
+
+__global__ void intensity_gradient_kernel(uint8_t* img, int img_width, int img_height, uint8_t* g_x, uint8_t* g_y, uint8_t* gradient, float* gradient_dir)
 {
     //try kernel from reference and see if the output is the same
     int x, y;
@@ -210,6 +227,7 @@ int main(){
     
     //image file path
     const char* input_image_path = "/data/data_ustv/home/ylee739/histopathpreprocessing/dataset/20069_38_2048_1462.jpg";
+    //                            "/data/data_ustv/home/ylee739/edge-detection-filter/Large_Scaled_Forest_Lizard.jpg";
     //read image
     //int image_width, image_height;
     uint8_t* image;
@@ -245,8 +263,8 @@ int main(){
     uint8_t* gradient_x; uint8_t* gradient_y; 
     cudaMallocManaged((void**)&gradient_x, image_width * image_height * sizeof(uint8_t));
     cudaMallocManaged((void**)&gradient_y, image_width * image_height * sizeof(uint8_t));
-    float* image_gradient; float* image_gradient_dir;
-    cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(float));
+    uint8_t* image_gradient; float* image_gradient_dir;
+    cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(uint8_t));
     cudaMallocManaged((void**)&image_gradient_dir, image_width * image_height * sizeof(float));
     intensity_gradient(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
     //intensity_gradient_kernel<<<dim3(1024,1024), dim3(5,5)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
