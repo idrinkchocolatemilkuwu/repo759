@@ -146,7 +146,14 @@ __host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, uint8_t* g
 
     #pragma omp parallel for
     for (int i = 0; i < width * height; i++){
-        g_abs[i] = sqrt(g_x[i] * g_x[i] + g_y[i] * g_y[i]);
+        //g_abs[i] = sqrt(g_x[i] * g_x[i] + g_y[i] * g_y[i]);
+        //try
+        if (g_x[i] + g_y[i] > 255){
+            g_abs[i] = 0;
+        }
+        else{
+            g_abs[i] =  g_x[i] + g_y[i];
+        }
         //note atan2 maps -180 to 180.
         //we can use (theta + 180) % 180 to have theta range from 0 to 180
 
@@ -350,12 +357,12 @@ int main(){
     //change image to grayscale
     uint8_t* grayscale_image;
     cudaMallocManaged((void**)&grayscale_image, image_width * image_height * sizeof(uint8_t));
-    color_to_grayscale<<<dim3(1024,1024), dim3(2,2)>>>(device_image, grayscale_image, image_width, image_height);
+    color_to_grayscale<<<dim3(1024,1024), dim3(4,4)>>>(device_image, grayscale_image, image_width, image_height);
     
     //compute Gaussian filter
     float* gaussian_filter;
     float gaussian_filter_size;
-    float gaussian_filter_sigma = 3;
+    float gaussian_filter_sigma = 3; //3 //1.4 //9
     Gaussian_filter(gaussian_filter_sigma, &gaussian_filter, &gaussian_filter_size);
     
     //convolve the image with Gaussian filter 
@@ -371,21 +378,22 @@ int main(){
     cudaMallocManaged((void**)&image_gradient, image_width * image_height * sizeof(uint8_t));
     cudaMallocManaged((void**)&image_gradient_dir, image_width * image_height * sizeof(float));
     intensity_gradient(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
-    //intensity_gradient_kernel<<<dim3(1024,1024), dim3(5,5)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+    //intensity_gradient_kernel<<<dim3(1024,1024), dim3(4,4)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
+    //intensity_gradient_wo_bc(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
 
     //perform edge thinning
     uint8_t* gradient_after_edge_thinning;
     cudaMallocManaged((void**)&gradient_after_edge_thinning, image_width * image_height * sizeof(uint8_t));
-    apply_lower_bound_to_gradient<<<dim3(1024,1024), dim3(2,2)>>>(image_gradient, image_gradient_dir, gradient_after_edge_thinning, image_width, image_height);
+    apply_lower_bound_to_gradient<<<dim3(1024,1024), dim3(4,4)>>>(image_gradient, image_gradient_dir, gradient_after_edge_thinning, image_width, image_height);
 
     //set threshold values for double threshold
     uint8_t lower_threshold_value = 150;
     uint8_t upper_threshold_value = 200;
     //apply double threshold
-    apply_double_threshold_to_gradient<<<dim3(1024,1024), dim3(2,2)>>>(gradient_after_edge_thinning, image_width, image_height, lower_threshold_value, upper_threshold_value);
+    apply_double_threshold_to_gradient<<<dim3(1024,1024), dim3(4,4)>>>(gradient_after_edge_thinning, image_width, image_height, lower_threshold_value, upper_threshold_value);
 
-    //save the loaded image
+    //saves and check
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
-    stbi_write_jpg(output_image_path, image_width, image_height, 1, gradient_after_edge_thinning, 100);
+    stbi_write_jpg(output_image_path, image_width, image_height, 1, image_gradient, 100);
     //stbi_write_jpg(output_image_path, image_width, image_height, 3, image, 100);
 }
