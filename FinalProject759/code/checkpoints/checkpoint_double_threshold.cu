@@ -147,13 +147,12 @@ __host__ void compute_magnitude_and_angle(uint8_t* g_x, uint8_t* g_y, uint8_t* g
     #pragma omp parallel for
     for (int i = 0; i < width * height; i++){
         //g_abs[i] = sqrt(g_x[i] * g_x[i] + g_y[i] * g_y[i]);
-        //try
-        if (g_x[i] + g_y[i] > 255){
-            g_abs[i] = 0;
-        }
-        else{
-            g_abs[i] =  g_x[i] + g_y[i];
-        }
+        //try setting a threshold
+        uint8_t tmp = abs(g_x[i]) + abs(g_y[i]);
+        if (tmp > 255){tmp = 255;}
+        else if (tmp < 150){tmp = 0;}
+        g_abs[i] = tmp;
+
         //note atan2 maps -180 to 180.
         //we can use (theta + 180) % 180 to have theta range from 0 to 180
 
@@ -337,8 +336,9 @@ __global__ void apply_double_threshold_to_gradient(uint8_t* gradient, int img_wi
 int main(){
     
     //image file path
-    //const char* input_image_path = "/data/data_ustv/home/ylee739/histopathpreprocessing/dataset/20069_38_2048_1462.jpg";
-    const char* input_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/Large_Scaled_Forest_Lizard.jpg";
+    const char* input_image_path = "/data/data_ustv/home/ylee739/histopathpreprocessing/dataset/20069_38_2048_1462.jpg";
+    //const char* input_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/Large_Scaled_Forest_Lizard.jpg";
+    
     //read image
     //int image_width, image_height;
     uint8_t* image;
