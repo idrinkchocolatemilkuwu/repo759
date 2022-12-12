@@ -299,8 +299,10 @@ __global__ void apply_lower_bound_to_gradient(uint8_t* gradient, float* gradient
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-uint8_t weak_edge_pixel_value = 190;
-uint8_t strong_edge_pixel_value = 255;
+//extern uint8_t weak_edge_pixel_value = 190;
+//extern uint8_t strong_edge_pixel_value = 255;
+#define weak_edge_pixel_value 190
+#define strong_edge_pixel_value 255
 
 __global__ void apply_double_threshold_to_gradient(uint8_t* gradient, int img_width, int img_height, uint8_t lower_threshold, uint8_t upper_threshold)
 {
@@ -359,42 +361,59 @@ __host__ void mark_weak_edge_as_strong_edge(uint8_t* gradient, int x, int y, int
     }
 }
 
-__global__ void hysteresis(uint8_t* gradient, int img_width, int img_height)
+__host__ void hysteresis(uint8_t* gradient, int img_width, int img_height)
 {
     //input gradient "gradient"
     //apply hysteresis
     //store the updated gradient at "gradient"
 
-    int x, y;
-    x = blockDim.x * blockIdx.x + threadIdx.x;
-    y = blockDim.y * blockIdx.y + threadIdx.y;
+    #pragma omp parallel for collapse(2)
+    for (int x = 0; x < img_width; x++){
+        for (int y = 0; y < img_height; y++){
+            int index = y * img_width + x;
 
-    if (y >= img_height || x >= img_width){
-        return;
+            //if gradient is considered on edge
+            //check the neighboring gradients
+            //and consider the ones marked as "weak edge" from earlier to be on edge 
+            if (gradient[index] == strong_edge_pixel_value){
+                mark_weak_edge_as_strong_edge(gradient, x - 1, y - 1, img_width, img_height);
+                mark_weak_edge_as_strong_edge(gradient, x, y - 1, img_width, img_height);
+                mark_weak_edge_as_strong_edge(gradient, x + 1, y - 1, img_width, img_height);
+
+                mark_weak_edge_as_strong_edge(gradient, x - 1, y, img_width, img_height);
+                //mark_weak_edge_as_strong_edge(gradient, x, y, img_width, img_height);
+                mark_weak_edge_as_strong_edge(gradient, x + 1, y, img_width, img_height);
+
+                mark_weak_edge_as_strong_edge(gradient, x - 1, y + 1, img_width, img_height);
+                mark_weak_edge_as_strong_edge(gradient, x, y + 1, img_width, img_height);
+                mark_weak_edge_as_strong_edge(gradient, x + 1, y + 1, img_width, img_height);
+            }
+
+        }
     }
+}
 
-    int index;
-    index = y * img_width + x;
-    
-    //if gradient is considered on edge
-    //check the neighboring gradients
-    //and consider the ones marked as "weak edge" from earlier to be on edge 
-    if (gradient[index] == strong_edge_pixel_value){
-        mark_weak_edge_as_strong_edge(gradient, x - 1, y - 1, img_width, img_height);
-        mark_weak_edge_as_strong_edge(gradient, x, y - 1, img_width, img_height);
-        mark_weak_edge_as_strong_edge(gradient, x + 1, y - 1, img_width, img_height);
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        mark_weak_edge_as_strong_edge(gradient, x - 1, y, img_width, img_height);
-        //mark_weak_edge_as_strong_edge(gradient, x, y, img_width, img_height);
-        mark_weak_edge_as_strong_edge(gradient, x + 1, y, img_width, img_height);
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        mark_weak_edge_as_strong_edge(gradient, x - 1, y + 1, img_width, img_height);
-        mark_weak_edge_as_strong_edge(gradient, x, y + 1, img_width, img_height);
-        mark_weak_edge_as_strong_edge(gradient, x + 1, y + 1, img_width, img_height);
+__host__ void cleanup_image(uint8_t* gradient, int img_width, int img_height)
+{
+    //clean up the image
+    //input gradient at "gradient"
+    //set the gradient value to 0 if gradient is not marked as on edge
+
+    #pragma omp parallel for collapse(2)
+    for (int x = 0; x < img_width; x++){
+        for (int y = 0; y < img_height; y++){
+            int index = y * img_width + x;
+            if (gradient[index] != strong_edge_pixel_value){
+                gradient[index] = 0;
+            }
+        }
     }
 
 }
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -458,8 +477,11 @@ int main(){
     apply_double_threshold_to_gradient<<<dim3(1024,1024), dim3(4,4)>>>(gradient_after_edge_thinning, image_width, image_height, lower_threshold_value, upper_threshold_value);
 
     //apply hysteresis
-    hysteresis<<<dim3(1024,1024), dim3(4,4)>>>(gradient_after_edge_thinning, image_width, image_height);
+    hysteresis(gradient_after_edge_thinning, image_width, image_height);
 
+    //clean up the image
+    cleanup_image(gradient_after_edge_thinning, image_width, image_height);
+    
     //saves and check
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
     stbi_write_jpg(output_image_path, image_width, image_height, 1, gradient_after_edge_thinning, 100);
