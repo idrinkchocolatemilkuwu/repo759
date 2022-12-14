@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <cmath>
 #include <omp.h>
+#include <algorithm>
 #include <ratio>
 #include <chrono>
 using std::chrono::high_resolution_clock;
@@ -9,6 +10,8 @@ using std::chrono::duration;
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -137,6 +140,32 @@ __host__ void convolve(uint8_t* img, uint8_t* img_output, int img_width, int img
             }
         }
     }
+}
+
+__global__ void convolve_kernel(uint8_t* img, uint8_t* img_output, int img_width, int img_height, float* filter, int filter_size)
+{
+    //from reference
+    int x, y;
+    x = blockDim.x * blockIdx.x + threadIdx.x;
+    y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (y >= img_height || x >= img_width){
+        return;
+    }
+
+    int i_min, i_max, j_min, j_max;
+    i_min = max(0, y + filter_size / 2 - filter_size + 1);
+    i_max = min(img_height, y + filter_size / 2 + 1);
+    j_min = max(0, x + filter_size / 2 - filter_size + 1);
+    j_max = min(img_width, x + filter_size / 2 + 1);
+
+    uint8_t sum = 0;
+    for (int i = i_min; i < i_max; ++i){
+        for (int j = j_min; j < j_max; ++j){
+            sum += img[i * img_width + j] * filter[(y - (i - filter_size / 2)) * filter_size + (x - (j - filter_size / 2))];
+        }
+    }
+    img_output[y * img_width + x] = sum;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -432,11 +461,10 @@ int main(){
     const char* input_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/Large_Scaled_Forest_Lizard.jpg";
     
     //read image
-    //int image_width, image_height;
     uint8_t* image;
     int image_width, image_height, bpp;
     image = stbi_load(input_image_path, &image_width, &image_height, &bpp, 3);
-
+    
     //image points to the pixel data where
     //pixel data consists of image_height scanlines of image_width pixels
     //each pixel consists of 3 components
@@ -458,7 +486,7 @@ int main(){
     color_to_grayscale<<<dim3(1024,1024), dim3(4,4)>>>(device_image, grayscale_image, image_width, image_height);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    printf("grayscale conversion: %f\n", duration_ms);
+    //printf("grayscale conversion: %f\n", duration_ms);
 
     //save the grayscale image
     //stbi_write_jpg("/data/data_ustv/home/ylee739/edge-detection-filter/grayscale_image.jpg", image_width, image_height, 1, grayscale_image, 100);
@@ -466,18 +494,20 @@ int main(){
     //compute Gaussian filter
     float* gaussian_filter;
     float gaussian_filter_size;
-    float gaussian_filter_sigma = 3; //3 //1.4 //9
+    float gaussian_filter_sigma = 3.4; //3 //1.4 //9
     Gaussian_filter(gaussian_filter_sigma, &gaussian_filter, &gaussian_filter_size);
     
     //convolve the image with Gaussian filter and time it
     uint8_t* convolved_image;
     cudaMallocManaged((void**)&convolved_image, image_width * image_height * sizeof(uint8_t));
     start = high_resolution_clock::now(); 
-    convolve(grayscale_image, convolved_image, image_width, image_height, gaussian_filter, gaussian_filter_size);
+    //convolve(grayscale_image, convolved_image, image_width, image_height, gaussian_filter, gaussian_filter_size);
+    convolve_kernel<<<dim3(1024,1024), dim3(4,4)>>>(grayscale_image, convolved_image, image_width, image_height, gaussian_filter, gaussian_filter_size);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
     printf("image convolution with Gaussian filter: %f\n", duration_ms);
 
+    
     //save the convolved image
     //stbi_write_jpg("/data/data_ustv/home/ylee739/edge-detection-filter/Gaussian_blurred_image.jpg", image_width, image_height, 1, convolved_image, 100);
 
@@ -493,7 +523,7 @@ int main(){
     //intensity_gradient_kernel<<<dim3(1024,1024), dim3(4,4)>>>(convolved_image, image_width, image_height, gradient_x, gradient_y, image_gradient, image_gradient_dir);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    printf("intensity gradient computation: %f\n", duration_ms);
+    //printf("intensity gradient computation: %f\n", duration_ms);
 
     //save the intensity gradient
     //stbi_write_jpg("/data/data_ustv/home/ylee739/edge-detection-filter/intensity_gradient.jpg", image_width, image_height, 1, image_gradient, 100);
@@ -505,21 +535,21 @@ int main(){
     apply_lower_bound_to_gradient<<<dim3(1024,1024), dim3(4,4)>>>(image_gradient, image_gradient_dir, gradient_after_edge_thinning, image_width, image_height);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    printf("edge thinning: %f\n", duration_ms);
+    //printf("edge thinning: %f\n", duration_ms);
 
     //save the updated intensity gradient
     //stbi_write_jpg("/data/data_ustv/home/ylee739/edge-detection-filter/edge_thinning.jpg", image_width, image_height, 1, gradient_after_edge_thinning, 100);
 
     //set threshold values for double threshold
-    uint8_t lower_threshold_value = 150; //100
-    uint8_t upper_threshold_value = 230; //180
+    uint8_t lower_threshold_value = 200; //100
+    uint8_t upper_threshold_value = 245; //180
 
     //apply double threshold and time it
     start = high_resolution_clock::now();
     apply_double_threshold_to_gradient<<<dim3(1024,1024), dim3(4,4)>>>(gradient_after_edge_thinning, image_width, image_height, lower_threshold_value, upper_threshold_value);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    printf("applying double threshold: %f\n", duration_ms);
+    //printf("applying double threshold: %f\n", duration_ms);
 
     //save the updated intensity gradient
     //stbi_write_jpg("/data/data_ustv/home/ylee739/edge-detection-filter/double_threshold.jpg", image_width, image_height, 1, gradient_after_edge_thinning, 100);
@@ -529,7 +559,7 @@ int main(){
     hysteresis(gradient_after_edge_thinning, image_width, image_height);
     end = high_resolution_clock::now();
     duration_ms = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    printf("hysteresis: %f\n", duration_ms);
+    //printf("hysteresis: %f\n", duration_ms);
 
     //clean up the image
     //cleanup_image(gradient_after_edge_thinning, image_width, image_height);
@@ -537,4 +567,5 @@ int main(){
     //save final image
     const char* output_image_path = "/data/data_ustv/home/ylee739/edge-detection-filter/output.jpg";
     stbi_write_jpg(output_image_path, image_width, image_height, 1, gradient_after_edge_thinning, 100);
+
 }
